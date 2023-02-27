@@ -1,0 +1,78 @@
+Implementarea are la baza laboratorul 4 si este impartita in fisierele 
+router.c, route_table.c, arp.c si icmp.c (plus cele din schelet).
+
+-route_table.c
+	- route_table: primeste numele fisierului de intrare, aloca si construieste
+	tabela de routare (table) cu datele citite;
+	
+	- lpm: cauta (folosind binary search) in tabela de routare adresa primita 
+	ca parametru, iar daca exista returneaza table[i] cu masca maxima sau NULL 
+	in caz contrar (https://en.wikipedia.org/wiki/Binary_search_algorithm).
+
+-arp.c
+	- get_arp: este functia implementata la laborator, returneaza arp[i] cu 
+	ip-ul egal cu valoarea primita ca parametru sau NULL in caz contrar;
+
+	- arp_request: adresa mac este adresa sursa a pachetului m, adica se 
+	trimite un pachet de tip ARP REPLY pe interfata de request;
+
+	- arp_send_packet: se adauga adresa IP si mac in tabela arp si cat timp 
+	coada de pachete nu este goala, se scoate cate un pachet pe rand: daca 
+	destinatia este corespunzatoare atunci se trimite pachetul cu send_packet, 
+	altfel se adauga intr-o coada noua ce va fi returnata la finalul functiei;
+
+	- arp_reply: se construieste header-ul Ethernet cu adresa de broadcast la 
+	mac_destinatie si adresa next_hop (lpfm->interface) la mac_sursa; se 
+	construieste ethr (pe care il adauga in string-ul payload), se adauga 
+	adresa destinatiei si a emitatorului in arphr (se completeaza toate 
+	campurile conform video-ului lui Ben Eater si se adauga in payload); 
+	se adauga payload in m.payload si se trimite pachetul apeland functia din 
+	skel.c send_packet pentru a afla adresa mac;
+
+-icmp.c
+	- sender_for_icmp: construieste headerele de Ethernet, IP si ICMP cu 
+	valorile prezentate in video-ul lui Ben Eater, pe care le adauga pe rand 
+	in string-ul payload si ulterior acesta este mutat in m.payload 
+	si se apeleaza functia send_packet pentru a il trimite;
+
+	- icmp_timeout: primeste un pachet m cu ttl 0 sau 1 si apeleaza functia 
+	anterioara pentru a trimite un pachet de tip TIME_EXCEED;
+
+	- icmp_unreach: primeste un pachet m a carui destinatie nu exista si 
+	apeleaza prima functie pentru a trimite un pachet de tip DEST_UNREACH;
+
+	- check_ip: salveaza valoarea initiala a checksum si o recalculeaza, iar 
+	daca nu sunt egale, se trece la pasul urmator; se decrementeaza ttl si se 
+	recalculeaza suma de control;
+		- daca lpm intoarce NULL (nu exista drum) se apeleaza icmp_unreach;
+		- daca ttl <= 1 se apeleaza icmp_timeout si se trece la pasul urmator;
+		- daca ip_destinatie este acelasi cu interfata emitatorului, trebuie 
+		trimis sursei un pachet de tip ICMP_ECHOREPLY;
+
+	- rfc_1624: functia actualizeaza suma de control incremental, aplicand 
+	formula [Eqn. 4] de la adresa https://datatracker.ietf.org/doc/html/rfc1624
+
+-router.c
+	- se apeleaza route_table pentru a forma tabela de routare si read_table 
+	pentru a afla dimensiunea acesteia;
+	- din payload-ul pachetului se obtine header-ul Ethernet, iar din campul 
+	ether_type se vede tipul pachetului:
+		ARP:
+		- se obtine si header-ul arp, fiind dupa cel de Ethernet;
+		- daca la campul op al arp-ului este REPLY, se apeleaza functia 
+		arp_send_packets pentru a trimite pachetele din coada (pachetele care 
+		nu au putut fi trimise raman in coada);
+		- daca la campul op al arp-ului este REQUEST, se apeleaza functia 
+		arp_request pentru a trimite arp reply;
+		- se trece la pasul urmator.
+	- se obtine headerul ip si se apeleaza lpm pentru a putea trimite pachetul;
+		IP / ICMP:
+		- se apeleaza check_ip, unde sunt verificate conditiile de checksum, 
+		se actualizeaza ttl si suma de control, se verifica erorile UNREACH si 
+		TIMEOUT, dar si cazul ECHOREPLY;
+		- daca next_hop nu se gaseste in tabela arp, se apeleaza arp_reply si 
+		se trimite request;
+		- se modifica ether_dhost si ether_shost din header-ul Ethernet;
+		- se trece la pasul urmator.
+	- se seteaza interfata pachetului egala cu interfata lpfm si se apeleaza 
+	functia send_packet pentru a trimite pachetul.
